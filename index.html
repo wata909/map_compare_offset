@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>迅速測図比地図比較 - オフセット調整機能付き</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    
+    .container {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+    
+    .map-panel {
+      flex: 1;
+      position: relative;
+      border-right: 2px solid #333;
+    }
+    
+    .map-panel:last-child {
+      border-right: none;
+    }
+    
+    .map {
+      width: 100%;
+      height: 100%;
+    }
+    
+    .panel-label {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 4px;
+      z-index: 1000;
+      font-weight: bold;
+    }
+    
+    /* オフセット調整コントロール */
+    .offset-control {
+      position: absolute;
+      bottom: 30px;
+      left: 10px;
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+      padding: 10px;
+    }
+    
+    .offset-control h4 {
+      font-size: 12px;
+      margin-bottom: 8px;
+      text-align: center;
+      color: #333;
+    }
+    
+    .offset-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 32px);
+      grid-template-rows: repeat(3, 32px);
+      gap: 2px;
+    }
+    
+    .offset-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #ccc;
+      background: #f5f5f5;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+    
+    .offset-btn:hover {
+      background: #e0e0e0;
+    }
+    
+    .offset-btn:active {
+      background: #d0d0d0;
+      transform: scale(0.95);
+    }
+    
+    .offset-btn.reset {
+      font-size: 10px;
+      background: #ff9800;
+      color: white;
+      border-color: #f57c00;
+    }
+    
+    .offset-btn.reset:hover {
+      background: #f57c00;
+    }
+    
+    .offset-btn.empty {
+      visibility: hidden;
+    }
+    
+    .offset-info {
+      margin-top: 8px;
+      font-size: 11px;
+      color: #666;
+      text-align: center;
+    }
+    
+    .offset-value {
+      font-family: monospace;
+      background: #f0f0f0;
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+    
+    /* ステップサイズ調整 */
+    .step-control {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #eee;
+    }
+    
+    .step-control label {
+      font-size: 11px;
+      color: #666;
+      display: block;
+      margin-bottom: 4px;
+    }
+    
+    .step-buttons {
+      display: flex;
+      gap: 4px;
+    }
+    
+    .step-btn {
+      flex: 1;
+      padding: 4px;
+      font-size: 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    
+    .step-btn.active {
+      background: #2196F3;
+      color: white;
+      border-color: #1976D2;
+    }
+
+    /* レイヤー切り替えコントロール */
+    .layer-control {
+      position: absolute;
+      top: 70px;
+      right: 10px;
+      background: rgba(68, 68, 153, 0.9);
+      color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+      z-index: 1000;
+      min-width: 200px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .layer-control-header {
+      background: rgba(68, 68, 153, 1);
+      padding: 12px;
+      border-radius: 8px 8px 0 0;
+      font-weight: bold;
+      font-size: 14px;
+      text-align: left;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .layer-group {
+      padding: 0;
+    }
+
+    .layer-item {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .layer-item input[type="radio"] {
+      margin-right: 10px;
+      transform: scale(1.1);
+    }
+
+    .layer-item:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .layer-item:last-child {
+      border-bottom: none;
+    }
+
+    /* クロスヘア（十字線）スタイル */
+    .crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      pointer-events: none;
+      z-index: 1500;
+      transform: translate(-50%, -50%);
+    }
+
+    .crosshair::before,
+    .crosshair::after {
+      content: '';
+      position: absolute;
+      background: #ff0000;
+      box-shadow: 0 0 2px rgba(0,0,0,0.5);
+    }
+
+    .crosshair::before {
+      width: 2px;
+      height: 40px;
+      top: -20px;
+      left: -1px;
+    }
+
+    .crosshair::after {
+      width: 40px;
+      height: 2px;
+      top: -1px;
+      left: -20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="map-panel">
+      <div class="panel-label">迅速測図（調整可能）</div>
+      <div id="map-left" class="map"></div>
+      <div class="offset-control">
+        <h4>位置微調整</h4>
+        <div class="offset-grid">
+          <button class="offset-btn empty"></button>
+          <button class="offset-btn" data-dx="0" data-dy="-1">↑</button>
+          <button class="offset-btn empty"></button>
+          <button class="offset-btn" data-dx="-1" data-dy="0">←</button>
+          <button class="offset-btn reset" id="reset-btn">R</button>
+          <button class="offset-btn" data-dx="1" data-dy="0">→</button>
+          <button class="offset-btn empty"></button>
+          <button class="offset-btn" data-dx="0" data-dy="1">↓</button>
+          <button class="offset-btn empty"></button>
+        </div>
+        <div class="offset-info">
+          オフセット: <span class="offset-value" id="offset-display">0, 0</span> px
+        </div>
+        <div class="step-control">
+          <label>移動量:</label>
+          <div class="step-buttons">
+            <button class="step-btn" data-step="1">1px</button>
+            <button class="step-btn active" data-step="5">5px</button>
+            <button class="step-btn" data-step="10">10px</button>
+            <button class="step-btn" data-step="50">50px</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="map-panel">
+      <div class="panel-label">現在の地図</div>
+      <div id="map-right" class="map"></div>
+      <div class="layer-control">
+        <div class="layer-control-header">Base Layer</div>
+        <div class="layer-group">
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="kanto-rapid">
+            <label for="kanto-rapid">関東平野迅速測図（1880年代）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="tokyo-survey">
+            <label for="tokyo-survey">東京図測量原図（1880年代）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="std" checked>
+            <label for="std">地理院タイル（標準）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="photo">
+            <label for="photo">地理院タイル（写真）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="kokudo-1974-1978">
+            <label for="kokudo-1974-1978">国土画像情報（1974-1978）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="kokudo-1979-1983">
+            <label for="kokudo-1979-1983">国土画像情報（1979-1983）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="kokudo-1984-1986">
+            <label for="kokudo-1984-1986">国土画像情報（1984-1986）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="kokudo-1988-1990">
+            <label for="kokudo-1988-1990">国土画像情報（1988-1990）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="aerial-1945-1950">
+            <label for="aerial-1945-1950">空中写真（1945-1950）</label>
+          </div>
+          <div class="layer-item">
+            <input type="radio" name="base-layer" id="aerial-1961-1964">
+            <label for="aerial-1961-1964">空中写真（1961-1964）</label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 初期設定
+    let initialCenter = [35.68, 139.76]; // 東京（デフォルト）
+    let initialZoom = 14;
+    
+    // URLハッシュから位置情報を取得
+    function getLocationFromHash() {
+      const hash = window.location.hash.substring(1); // #を除去
+      if (hash) {
+        const parts = hash.split('/');
+        if (parts.length === 3) {
+          const zoom = parseInt(parts[0]);
+          const lat = parseFloat(parts[1]);
+          const lng = parseFloat(parts[2]);
+          if (!isNaN(zoom) && !isNaN(lat) && !isNaN(lng)) {
+            return {
+              center: [lat, lng],
+              zoom: zoom
+            };
+          }
+        }
+      }
+      return null;
+    }
+    
+    // URLハッシュを更新
+    function updateHash(center, zoom) {
+      const lat = center.lat.toFixed(6);
+      const lng = center.lng.toFixed(6);
+      const newHash = `#${zoom}/${lat}/${lng}`;
+      if (window.location.hash !== newHash) {
+        window.location.hash = newHash;
+      }
+    }
+    
+    // ハッシュから位置を読み込み
+    const hashLocation = getLocationFromHash();
+    if (hashLocation) {
+      initialCenter = hashLocation.center;
+      initialZoom = hashLocation.zoom;
+    }
+    
+    // オフセット管理
+    let offsetX = 0;
+    let offsetY = 0;
+    let stepSize = 5;
+    
+    // 左側の地図（迅速測図）
+    const mapLeft = L.map('map-left', {
+      center: initialCenter,
+      zoom: initialZoom,
+      zoomControl: false
+    });
+    
+    // デモ用: Stamen Toner (古地図風) - 実際にはHABSタイルに置き換え
+    // HABSタイル例: https://habs.rad.naro.go.jp/tiles/rapid/{z}/{x}/{y}.png
+    const leftTileLayer = L.tileLayer('https://boiledorange73.sakura.ne.jp/ws/tile/Kanto_Rapid-900913/{z}/{x}/{y}.jpg', {
+      attribution: '歴史的農業環境閲覧システム（農研機構）',
+      className: 'adjustable-tiles'
+    }).addTo(mapLeft);
+    
+    // 右側の地図（現在の地図）
+    const mapRight = L.map('map-right', {
+      center: initialCenter,
+      zoom: initialZoom,
+      zoomControl: true
+    });
+    
+    // 右側の地図のレイヤー定義
+    const baseLayers = {
+      'kanto-rapid': L.tileLayer('https://boiledorange73.sakura.ne.jp/ws/tile/Kanto_Rapid-900913/{z}/{x}/{y}.jpg', {
+        attribution: '関東平野迅速測図（1880年代） - 農研機構農業環境研究部門',
+        maxZoom: 18
+      }),
+      'tokyo-survey': L.tileLayer('https://boiledorange73.sakura.ne.jp/ws/tile/Tokyo5000-900913/{z}/{x}/{y}.jpg', {
+        attribution: '東京図測量原図（1880年代） - 農研機構農業環境研究部門',
+        maxZoom: 18,
+        errorTileUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
+      }),
+      'std': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+        attribution: '地理院タイル（標準） - 国土地理院'
+      }),
+      'photo': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg', {
+        attribution: '地理院タイル（写真） - 国土地理院'
+      }),
+      'kokudo-1974-1978': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/gazo4/{z}/{x}/{y}.jpg', {
+        attribution: '国土画像情報（1974-1978） - 国土地理院',
+        maxZoom: 18
+      }),
+      'kokudo-1979-1983': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/gazo3/{z}/{x}/{y}.jpg', {
+        attribution: '国土画像情報（1979-1983） - 国土地理院',
+        maxZoom: 18
+      }),
+      'kokudo-1984-1986': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/gazo2/{z}/{x}/{y}.jpg', {
+        attribution: '国土画像情報（1984-1986） - 国土地理院',
+        maxZoom: 18
+      }),
+      'kokudo-1988-1990': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/gazo1/{z}/{x}/{y}.jpg', {
+        attribution: '国土画像情報（1988-1990） - 国土地理院',
+        maxZoom: 18
+      }),
+      'aerial-1945-1950': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/USA10/{z}/{x}/{y}.png', {
+        attribution: '空中写真（1945-1950） - 国土地理院',
+        maxZoom: 18
+      }),
+      'aerial-1961-1964': L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/ort_USA10/{z}/{x}/{y}.png', {
+        attribution: '空中写真（1961-1964） - 国土地理院',
+        maxZoom: 18
+      })
+    };
+    
+    // デフォルトレイヤーを追加
+    let currentRightLayer = baseLayers['std'];
+    currentRightLayer.addTo(mapRight);
+    
+    // 初期位置のハッシュを設定
+    if (!window.location.hash) {
+      updateHash(mapLeft.getCenter(), mapLeft.getZoom());
+    }
+    
+    // クロスヘア要素を作成
+    const leftCrosshair = document.createElement('div');
+    leftCrosshair.className = 'crosshair';
+    leftCrosshair.style.display = 'block';  // 常時表示
+    document.getElementById('map-left').appendChild(leftCrosshair);
+    
+    const rightCrosshair = document.createElement('div');
+    rightCrosshair.className = 'crosshair';
+    rightCrosshair.style.display = 'block';  // 常時表示
+    document.getElementById('map-right').appendChild(rightCrosshair);
+    
+    // 地図の同期
+    let syncing = false;
+    
+    function syncMaps(sourceMap, targetMap) {
+      if (syncing) return;
+      syncing = true;
+      const center = sourceMap.getCenter();
+      const zoom = sourceMap.getZoom();
+      targetMap.setView(center, zoom, { animate: false });
+      syncing = false;
+    }
+    
+    function updateHashFromMap(map) {
+      if (syncing) return;
+      updateHash(map.getCenter(), map.getZoom());
+    }
+    
+    // リアルタイム同期（移動中）
+    mapLeft.on('move', () => syncMaps(mapLeft, mapRight));
+    mapRight.on('move', () => syncMaps(mapRight, mapLeft));
+    
+    // URLハッシュ更新（移動完了時）
+    mapLeft.on('moveend zoomend', () => updateHashFromMap(mapLeft));
+    mapRight.on('moveend zoomend', () => updateHashFromMap(mapRight));
+    
+    // ブラウザの戻る・進むボタン対応
+    window.addEventListener('hashchange', () => {
+      const hashLocation = getLocationFromHash();
+      if (hashLocation && !syncing) {
+        syncing = true;
+        mapLeft.setView(hashLocation.center, hashLocation.zoom, { animate: true });
+        mapRight.setView(hashLocation.center, hashLocation.zoom, { animate: true });
+        syncing = false;
+      }
+    });
+    
+    // オフセット適用
+    function applyOffset() {
+      const tilePane = mapLeft.getPane('tilePane');
+      if (tilePane) {
+        tilePane.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+      }
+      document.getElementById('offset-display').textContent = `${offsetX}, ${offsetY}`;
+    }
+    
+    // オフセットボタンのイベント
+    document.querySelectorAll('.offset-btn[data-dx]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dx = parseInt(btn.dataset.dx) * stepSize;
+        const dy = parseInt(btn.dataset.dy) * stepSize;
+        offsetX += dx;
+        offsetY += dy;
+        applyOffset();
+      });
+    });
+    
+    // リセットボタン
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      offsetX = 0;
+      offsetY = 0;
+      applyOffset();
+    });
+    
+    // ステップサイズ変更
+    document.querySelectorAll('.step-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.step-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        stepSize = parseInt(btn.dataset.step);
+      });
+    });
+    
+    // レイヤー切り替えイベント
+    document.querySelectorAll('input[name="base-layer"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          // 現在のレイヤーを削除
+          mapRight.removeLayer(currentRightLayer);
+          // 新しいレイヤーを追加
+          currentRightLayer = baseLayers[e.target.id];
+          currentRightLayer.addTo(mapRight);
+        }
+      });
+    });
+    
+    // キーボードショートカット
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      
+      switch(e.key) {
+        case 'ArrowUp':
+          offsetY -= stepSize;
+          applyOffset();
+          e.preventDefault();
+          break;
+        case 'ArrowDown':
+          offsetY += stepSize;
+          applyOffset();
+          e.preventDefault();
+          break;
+        case 'ArrowLeft':
+          offsetX -= stepSize;
+          applyOffset();
+          e.preventDefault();
+          break;
+        case 'ArrowRight':
+          offsetX += stepSize;
+          applyOffset();
+          e.preventDefault();
+          break;
+        case 'r':
+        case 'R':
+          offsetX = 0;
+          offsetY = 0;
+          applyOffset();
+          break;
+      }
+    });
+  </script>
+</body>
+</html>
